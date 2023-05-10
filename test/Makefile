@@ -1,3 +1,4 @@
+MAKEFLAGS += --no-print-directory
 .PHONY: all check clean $(wildcard TEST-??-*)
 
 $(wildcard TEST-??-*):
