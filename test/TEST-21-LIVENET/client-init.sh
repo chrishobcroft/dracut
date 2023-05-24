@@ -17,13 +17,7 @@ if getargbool 0 rd.shell; then
 fi
 
 echo "made it to the rootfs! Powering down."
-findmnt /
-find /dev/disk/by-id/
-ip link show
-ip link set dev enx5254001234ee up
-ip route
-ip neigh
-curl 1.1.1.1
+cat /proc/mounts
 
 echo "rootfs-OK" | dd oflag=direct,dsync of=/dev/disk/by-id/ata-disk_marker 2>/dev/null
 

@@ -226,8 +226,8 @@ make_client_root() {
         )
 
         inst_multiple sh shutdown poweroff stty cat ps ln ip dd \
-            mount dmesg mkdir cp ping grep setsid ls vi less cat sync \
-            findmnt find curl
+            mount dmesg mkdir cp ping grep setsid ls less cat sync \
+            #findmnt find curl
         for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
             if [ -f "${_terminfodir}"/l/linux ]; then
                 inst_multiple -o "${_terminfodir}"/l/linux
@@ -239,14 +239,14 @@ make_client_root() {
         inst_simple "${basedir}/modules.d/99base/dracut-dev-lib.sh" "/lib/dracut-dev-lib.sh"
         inst_simple "${basedir}/modules.d/45url-lib/url-lib.sh" "/lib/url-lib.sh"
         inst_simple "${basedir}/modules.d/40network/net-lib.sh" "/lib/net-lib.sh"
-        inst_simple "${basedir}/modules.d/95nfs/nfs-lib.sh" "/lib/nfs-lib.sh"
+        #inst_simple "${basedir}/modules.d/95nfs/nfs-lib.sh" "/lib/nfs-lib.sh"
         inst_binary "${basedir}/dracut-util" "/usr/bin/dracut-util"
         ln -s dracut-util "${initdir}/usr/bin/dracut-getarg"
         ln -s dracut-util "${initdir}/usr/bin/dracut-getargs"
 
         inst ./client-init.sh /sbin/init
         inst_simple /etc/os-release
-        inst_multiple -o {,/usr}/etc/nsswitch.conf
+        #inst_multiple -o {,/usr}/etc/nsswitch.conf
         inst /etc/passwd /etc/passwd
         inst /etc/group /etc/group
 
@@ -257,13 +257,13 @@ make_client_root() {
         )
         _nsslibs=${_nsslibs#|}
         _nsslibs=${_nsslibs%|}
-        inst_libdir_file -n "$_nsslibs" 'libnss_*.so*'
+        #inst_libdir_file -n "$_nsslibs" 'libnss_*.so*'
 
-        cp -a /etc/ld.so.conf* "$initdir"/etc
-        ldconfig -r "$initdir"
+        #cp -a /etc/ld.so.conf* "$initdir"/etc
+        #ldconfig -r "$initdir"
     )
 
-    mksquashfs $TESTDIR/client/overlay/source $TESTDIR/squashfs.img -quiet
+    mksquashfs $TESTDIR/client/overlay/source $TESTDIR/squashfs.img -quiet -comp zstd -Xcompression-level 22
 }
 
 test_setup() {
