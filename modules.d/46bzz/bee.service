@@ -1,0 +1,13 @@
+[Unit]
+Description=Bee - Ethereum Swarm node
+Documentation=https://docs.ethswarm.org
+
+[Service]
+Environment=HOME=/
+EnvironmentFile=-/etc/default/bee
+ExecStart=/usr/bin/bee start --config /etc/bee/bee.yaml
+Restart=on-failure
+RestartSec=5s
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal+console

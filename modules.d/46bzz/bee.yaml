@@ -1,0 +1,14 @@
+## Bee configuration - https://docs.ethswarm.org/docs/working-with-bee/configuration
+
+api-addr: :1633
+## clef signer endpoint
+#clef-signer-endpoint: /var/lib/bee-clef/clef.ipc
+## config file (default is /home/<user>/.bee.yaml)
+config: /etc/bee/bee.yaml
+data-dir: /var/lib/bee
+debug-api-addr: 127.0.0.1:1635
+debug-api-enable: true
+password-file: /var/lib/bee/password
+swap-enable: false # otherwise we deploy a new chequebook on every invocation!
+blockchain-rpc-endpoint: "https://rpc.gnosischain.com/"
+verbosity: error
