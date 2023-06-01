@@ -84,11 +84,11 @@ test_setup() {
 	#inst_hook pre-mount 50 ./print-env.sh
         inst_simple ./client.link /etc/systemd/network/01-client.link
 	# bee state stuff
-	inst_simple /var/lib/bee/password /var/lib/bee/password
-	inst_dir /var/lib/bee/keys /var/lib/bee/keys
-	for k in libp2p_v2 pss swarm; do
-	    inst_simple /var/lib/bee/keys/$k.key /var/lib/bee/keys/$k.key
-        done
+	#inst_simple /var/lib/bee/password /var/lib/bee/password
+	#inst_dir /var/lib/bee/keys /var/lib/bee/keys
+	#for k in libp2p_v2 pss swarm; do
+	#    inst_simple /var/lib/bee/keys/$k.key /var/lib/bee/keys/$k.key
+        #done
     )
 
     # Make initramfs

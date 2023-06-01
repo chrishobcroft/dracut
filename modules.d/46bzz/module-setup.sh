@@ -17,6 +17,10 @@ install() {
     inst_binary bee
     inst_binary ss
     inst_simple "$moddir/bee.yaml" /etc/bee/bee.yaml
+    inst_simple /var/lib/bee/password
+    for key in libp2p_v2 pss swarm; do
+	    inst_simple /var/lib/bee/keys/$key.key
+    done
 
     #$SYSTEMCTL -q --root "$initdir" add-requires sysinit.target bee.service
 }
