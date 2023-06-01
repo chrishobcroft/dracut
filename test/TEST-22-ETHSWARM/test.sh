@@ -17,7 +17,7 @@ test_run() {
     local ip=10.0.2.100
     local gw=10.0.2.2
     local netargs="ip=$ip::$gw:255.255.255.0:grubbler:enx5254001234ee:none:10.0.2.3"
-    local swarmhash="01daca3c0d8a626fe2d53b1c1e52136baaaf1f467cfec727a7a0a4d9881b184f"
+    local swarmhash="e305446d58fb09914e3dd85977afc39df27caa41b58391cacb1b4b37497a48a9"
     #local prefix="https://download.gateway.ethswarm.org/bzz/"
     local prefix="bzz://"
 
