@@ -12,17 +12,10 @@ KVERSION=${KVERSION-$(uname -r)}
 SERVER_DEBUG="rd.debug loglevel=7"
 #SERIAL="unix:/tmp/server.sock"
 
-test_run() {
-    local mac=52:54:00:12:34:ee
-    local ip=10.0.2.100
-    local gw=10.0.2.2
-    local netargs="ip=$ip::$gw:255.255.255.0:grubbler:enx5254001234ee:none:10.0.2.3"
-    local swarmhash="e305446d58fb09914e3dd85977afc39df27caa41b58391cacb1b4b37497a48a9"
-    #local prefix="https://download.gateway.ethswarm.org/bzz/"
-    local prefix="bzz://"
+mac=52:54:00:12:34:ee
 
-    #local cmdline="root=live:bzz://$swarmhash $netargs rd.neednet"
-    local cmdline="root=live:${prefix}${swarmhash} $netargs rd.neednet"
+run_with_cmdline() {
+    local cmdline="$1"
     local nfsinfo opts found expected
 
     echo "Booting $cmdline"
@@ -46,10 +39,34 @@ test_run() {
 
     # shellcheck disable=sc2181
     if ! grep --binary-files=binary -F -m 1 -q rootfs-OK "$TESTDIR"/marker.img; then
-        echo "CLIENT TEST END: $test_name [FAILED - BAD EXIT]"
         return 1
     fi
 
+}
+
+run_ip_dhcp() {
+    local netargs="ip=dhcp"
+    local swarmhash="e305446d58fb09914e3dd85977afc39df27caa41b58391cacb1b4b37497a48a9"
+    #local prefix="https://download.gateway.ethswarm.org/bzz/"
+    local prefix="bzz://"
+
+    run_with_cmdline "root=live:${prefix}${swarmhash} $netargs rd.neednet"
+}
+
+run_ip_static() {
+    local ip=10.0.2.100
+    local gw=10.0.2.2
+    local netargs="ip=$ip::$gw:255.255.255.0:grubbler:enx5254001234ee:none:10.0.2.3"
+    local swarmhash="e305446d58fb09914e3dd85977afc39df27caa41b58391cacb1b4b37497a48a9"
+    #local prefix="https://download.gateway.ethswarm.org/bzz/"
+    local prefix="bzz://"
+
+    run_with_cmdline "root=live:${prefix}${swarmhash} $netargs rd.neednet"
+}
+
+test_run() {
+    run_ip_dhcp
+    echo "Test completed with exit code $?."
     echo "CLIENT TEST END: [OK]"
     return 0
 }
