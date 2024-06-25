@@ -2,7 +2,7 @@
 
 # called by dracut
 check() {
-    require_binaries sed grep || return 1
+    require_binaries sed grep NetworkManager || return 1
 
     # do not add this module by default
     return 255
@@ -10,7 +10,7 @@ check() {
 
 # called by dracut
 depends() {
-    echo dbus bash
+    echo dbus bash net-lib kernel-network-modules
     return 0
 }
 
@@ -51,8 +51,10 @@ install() {
         inst_simple "$moddir"/nm-initrd.service "$systemdsystemunitdir"/nm-initrd.service
         inst_simple "$moddir"/nm-wait-online-initrd.service "$systemdsystemunitdir"/nm-wait-online-initrd.service
 
-        # Adding default link
-        inst_multiple -o "${systemdnetwork}/99-default.link"
+        # Adding default link and (if exists) 98-default-mac-none.link
+        inst_multiple -o \
+            "${systemdnetwork}/99-default.link" \
+            "${systemdnetwork}/98-default-mac-none.link"
         [[ $hostonly ]] && inst_multiple -H -o "${systemdnetworkconfdir}/*.link"
 
         $SYSTEMCTL -q --root "$initdir" enable nm-initrd.service
@@ -70,7 +72,9 @@ install() {
     elif ! [[ -e "$initdir/etc/machine-id" ]]; then
         # The internal DHCP client silently fails if we
         # have no machine-id
-        systemd-machine-id-setup --root="$initdir"
+        local UUID
+        UUID=$(< /proc/sys/kernel/random/uuid)
+        echo "${UUID//-/}" > "$initdir/etc/machine-id"
     fi
 
     # We don't install the ifcfg files from the host automatically.

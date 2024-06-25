@@ -19,6 +19,8 @@ check() {
 # Module dependency requirements.
 depends() {
 
+    # This module has external dependency on other module(s).
+    echo systemd systemd-sysusers
     # Return 0 to include the dependent module(s) in the initramfs.
     return 0
 
@@ -28,6 +30,8 @@ depends() {
 install() {
 
     inst_simple "$moddir/initrd.conf" "$systemdutildir/journald.conf.d/initrd.conf"
+
+    inst_sysusers systemd-journal.conf
 
     inst_multiple -o \
         "$systemdutildir"/journald.conf \
@@ -40,21 +44,20 @@ install() {
         "$systemdsystemunitdir"/systemd-journald-audit.socket \
         "$systemdsystemunitdir"/systemd-journald-dev-log.socket \
         "$systemdsystemunitdir"/systemd-journald-varlink@.socket \
-        "$systemdsystemunitdir"/systemd-journal-flush.service \
         "$systemdsystemunitdir"/systemd-journal-catalog-update.service \
         "$systemdsystemunitdir"/sockets.target.wants/systemd-journald-audit.socket \
         "$systemdsystemunitdir"/sockets.target.wants/systemd-journald-dev-log.socket \
         "$systemdsystemunitdir"/sockets.target.wants/systemd-journald.socket \
         "$systemdsystemunitdir"/sysinit.target.wants/systemd-journald.service \
-        "$sysusers"/systemd-journal.conf \
         journalctl
 
     # Install library file(s)
     _arch=${DRACUT_ARCH:-$(uname -m)}
     inst_libdir_file \
+        {"tls/$_arch/",tls/,"$_arch/",}"libgcrypt.so*" \
         {"tls/$_arch/",tls/,"$_arch/",}"liblz4.so.*" \
-        {"tls/$_arch/",tls/,"$_arch/",}"libzstd.so.*" \
-        {"tls/$_arch/",tls/,"$_arch/",}"liblzma.so.*"
+        {"tls/$_arch/",tls/,"$_arch/",}"liblzma.so.*" \
+        {"tls/$_arch/",tls/,"$_arch/",}"libzstd.so.*"
 
     # Install the hosts local user configurations if enabled.
     if [[ $hostonly ]]; then
@@ -63,11 +66,8 @@ install() {
             "$systemdutilconfdir/journald.conf.d/*.conf" \
             "$systemdsystemconfdir"/systemd-journald.service \
             "$systemdsystemconfdir/systemd-journald.service.d/*.conf" \
-            "$systemdsystemconfdir"/systemd-journal-flush.service \
-            "$systemdsystemconfdir/systemd-journal-flush.service.d/*.conf" \
             "$systemdsystemconfdir"/systemd-journal-catalog-update.service \
-            "$systemdsystemconfdir/systemd-journal-catalog-update.service.d/*.conf" \
-            "$sysusersconfdir"/systemd-journal.conf
+            "$systemdsystemconfdir/systemd-journal-catalog-update.service.d/*.conf"
     fi
 
 }

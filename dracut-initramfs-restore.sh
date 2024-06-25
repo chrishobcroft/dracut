@@ -46,8 +46,15 @@ elif mountpoint -q /efi; then
 elif mountpoint -q /boot/efi; then
     IMG="/boot/efi/$MACHINE_ID/$KERNEL_VERSION/initrd"
 else
-    echo "No initramfs image found to restore!"
-    exit 1
+    files=(/boot/initr*"${KERNEL_VERSION}"*)
+    if [ "${#files[@]}" -ge 1 ] && [ -e "${files[0]}" ]; then
+        IMG="${files[0]}"
+    elif [[ -f /boot/initramfs-linux.img ]]; then
+        IMG="/boot/initramfs-linux.img"
+    else
+        echo "No initramfs image found to restore!"
+        exit 1
+    fi
 fi
 
 cd /run/initramfs
@@ -75,9 +82,12 @@ if [[ -d squash ]]; then
     fi
 fi
 
-if [ -e /etc/selinux/config -a -x /usr/sbin/setfiles ]; then
+if grep -q -w selinux /sys/kernel/security/lsm 2> /dev/null \
+    && [ -e /etc/selinux/config ] && [ -x /usr/sbin/setfiles ]; then
     . /etc/selinux/config
-    [ -n "${SELINUXTYPE}" ] && /usr/sbin/setfiles -v -r /run/initramfs /etc/selinux/"${SELINUXTYPE}"/contexts/files/file_contexts /run/initramfs > /dev/null
+    if [[ $SELINUX != "disabled" && -n $SELINUXTYPE ]]; then
+        /usr/sbin/setfiles -v -r /run/initramfs /etc/selinux/"${SELINUXTYPE}"/contexts/files/file_contexts /run/initramfs > /dev/null
+    fi
 fi
 
 exit 0

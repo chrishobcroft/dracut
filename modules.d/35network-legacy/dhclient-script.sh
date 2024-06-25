@@ -71,7 +71,7 @@ setup_interface() {
         fi >> /tmp/net."$netif".resolv.conf
     fi
     # Note: hostname can be fqdn OR short hostname, so chop off any
-    # trailing domain name and explicity add any domain if set.
+    # trailing domain name and explicitly add any domain if set.
     [ -n "$hostname" ] && echo "echo ${hostname%."$domain"}${domain:+.$domain} > /proc/sys/kernel/hostname" > /tmp/net."$netif".hostname
 }
 
@@ -104,7 +104,7 @@ setup_interface6() {
     fi
 
     # Note: hostname can be fqdn OR short hostname, so chop off any
-    # trailing domain name and explicity add any domain if set.
+    # trailing domain name and explicitly add any domain if set.
     [ -n "$hostname" ] && echo "echo ${hostname%."$domain"}${domain:+.$domain} > /proc/sys/kernel/hostname" > /tmp/net."$netif".hostname
 }
 
@@ -114,7 +114,7 @@ parse_option_121() {
         shift
 
         # Is the destination a multicast group?
-        if [ "$1" -ge 224 -a "$1" -lt 240 ]; then
+        if [ "$1" -ge 224 ] && [ "$1" -lt 240 ]; then
             multicast=1
         else
             multicast=0
@@ -153,7 +153,7 @@ parse_option_121() {
         # Multicast routing on Linux
         #  - If you set a next-hop address for a multicast group, this breaks with Cisco switches
         #  - If you simply leave it link-local and attach it to an interface, it works fine.
-        if [ $multicast -eq 1 -o "$gateway" = "0.0.0.0" ]; then
+        if [ $multicast -eq 1 ] || [ "$gateway" = "0.0.0.0" ]; then
             temp_result="$destination dev $interface"
         else
             temp_result="$destination via $gateway dev $interface"

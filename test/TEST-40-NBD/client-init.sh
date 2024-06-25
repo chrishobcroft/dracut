@@ -9,7 +9,7 @@ exec > /dev/console 2>&1
 while read -r dev fs fstype opts rest || [ -n "$dev" ]; do
     [ "$dev" = "rootfs" ] && continue
     [ "$fs" != "/" ] && continue
-    echo "nbd-OK $fstype $opts" | dd oflag=direct,dsync of=/dev/disk/by-id/ata-disk_marker
+    echo "nbd-OK $fstype $opts" | dd oflag=direct,dsync of=/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_marker status=none
     echo "nbd-OK $fstype $opts"
     break
 done < /proc/mounts
@@ -20,7 +20,7 @@ echo "made it to the rootfs! Powering down."
 
 if getargbool 0 rd.shell; then
     strstr "$(setsid --help)" "control" && CTTY="-c"
-    setsid $CTTY sh -i
+    setsid ${CTTY:+"${CTTY}"} sh -i
 fi
 
 mount -n -o remount,ro /

@@ -17,32 +17,16 @@ depends() {
     done
 
     if [ -z "$network_handler" ]; then
-        if [[ -e $dracutsysrootdir$systemdsystemunitdir/connman.service ]]; then
+        if check_module "connman"; then
             network_handler="connman"
-        elif [[ -x $dracutsysrootdir/usr/libexec/nm-initrd-generator ]] || [[ -x $dracutsysrootdir/usr/lib/nm-initrd-generator ]]; then
+        elif check_module "network-manager"; then
             network_handler="network-manager"
-        elif [[ -x $dracutsysrootdir$systemdutildir/systemd-networkd ]]; then
+        elif check_module "systemd-networkd"; then
             network_handler="systemd-networkd"
         else
             network_handler="network-legacy"
         fi
     fi
-    echo "kernel-network-modules $network_handler"
+    echo "net-lib kernel-network-modules $network_handler"
     return 0
-}
-
-# called by dracut
-installkernel() {
-    return 0
-}
-
-# called by dracut
-install() {
-    inst_script "$moddir/netroot.sh" "/sbin/netroot"
-    inst_simple "$moddir/net-lib.sh" "/lib/net-lib.sh"
-    inst_hook pre-udev 50 "$moddir/ifname-genrules.sh"
-    inst_hook cmdline 91 "$moddir/dhcp-root.sh"
-    inst_multiple ip sed awk grep pgrep tr
-    inst_multiple -o arping arping2
-    dracut_need_initqueue
 }

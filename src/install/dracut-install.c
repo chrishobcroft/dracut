@@ -480,6 +480,11 @@ static char *get_real_file(const char *src, bool fullyresolve)
 
         log_debug("get_real_file: readlink('%s') returns '%s'", fullsrcpath, linktarget);
 
+        if (streq(fullsrcpath, linktarget)) {
+                log_error("ERROR: '%s' is pointing to itself", fullsrcpath);
+                return NULL;
+        }
+
         if (linktarget[0] == '/') {
                 _asprintf(&abspath, "%s%s", (sysrootdirlen ? sysrootdir : ""), linktarget);
         } else {
@@ -603,7 +608,7 @@ static int resolve_deps(const char *src)
                         break;
 
                 if (strstr(buf, "cannot be preloaded"))
-                        break;
+                        continue;
 
                 if (strstr(buf, destrootdir))
                         break;
@@ -1396,7 +1401,6 @@ static int install_firmware(struct kmod_module *mod)
         struct kmod_list *l = NULL;
         _cleanup_kmod_module_info_free_list_ struct kmod_list *list = NULL;
         int ret;
-
         char **q;
 
         ret = kmod_module_get_info(mod, &list);
@@ -1407,6 +1411,7 @@ static int install_firmware(struct kmod_module *mod)
         kmod_list_foreach(l, list) {
                 const char *key = kmod_module_info_get_key(l);
                 const char *value = NULL;
+                bool found_this = false;
 
                 if (!streq("firmware", key))
                         continue;
@@ -1427,18 +1432,19 @@ static int install_firmware(struct kmod_module *mod)
                                 glob(fwpath, 0, NULL, &globbuf);
                                 for (i = 0; i < globbuf.gl_pathc; i++) {
                                         ret = install_firmware_fullpath(globbuf.gl_pathv[i]);
-                                        if (ret != 0) {
-                                                log_info("Possible missing firmware %s for kernel module %s", value,
-                                                         kmod_module_get_name(mod));
-                                        }
+                                        if (ret == 0)
+                                                found_this = true;
                                 }
                         } else {
                                 ret = install_firmware_fullpath(fwpath);
-                                if (ret != 0) {
-                                        log_info("Possible missing firmware %s for kernel module %s", value,
-                                                 kmod_module_get_name(mod));
-                                }
+                                if (ret == 0)
+                                        found_this = true;
                         }
+                }
+                if (!found_this) {
+                        /* firmware path was not found in any firmwaredirs */
+                        log_info("Missing firmware %s for kernel module %s",
+                                 value, kmod_module_get_name(mod));
                 }
         }
         return 0;
@@ -1862,6 +1868,7 @@ static int install_modules(int argc, char **argv)
         int modinst = 0;
 
         ctx = kmod_new(kerneldir, NULL);
+        kmod_load_resources(ctx);
         abskpath = kmod_get_dirname(ctx);
 
         p = strstr(abskpath, "/lib/modules/");
@@ -2268,6 +2275,17 @@ finish2:
         hashmap_free(modules_loaded);
         hashmap_free(modules_suppliers);
         hashmap_free(processed_suppliers);
+
+        if (arg_mod_filter_path)
+                regfree(&mod_filter_path);
+        if (arg_mod_filter_nopath)
+                regfree(&mod_filter_nopath);
+        if (arg_mod_filter_symbol)
+                regfree(&mod_filter_symbol);
+        if (arg_mod_filter_nosymbol)
+                regfree(&mod_filter_nosymbol);
+        if (arg_mod_filter_noname)
+                regfree(&mod_filter_noname);
 
         strv_free(firmwaredirs);
         strv_free(pathdirs);

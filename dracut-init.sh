@@ -35,7 +35,7 @@ if ! [[ $dracutbasedir ]]; then
     dracutbasedir=${BASH_SOURCE[0]%/*}
     [[ $dracutbasedir == dracut-functions* ]] && dracutbasedir="."
     [[ $dracutbasedir ]] || dracutbasedir="."
-    dracutbasedir="$(readlink -f $dracutbasedir)"
+    dracutbasedir="$(readlink -f "$dracutbasedir")"
 fi
 
 if ! is_func dinfo > /dev/null 2>&1; then
@@ -44,7 +44,6 @@ if ! is_func dinfo > /dev/null 2>&1; then
     dlog_init
 fi
 
-# shellcheck disable=SC2154
 if ! [[ $initdir ]]; then
     dfatal "initdir not set"
     exit 1
@@ -59,10 +58,8 @@ if ! [[ $kernel ]]; then
     export kernel
 fi
 
-# shellcheck disable=SC2154
 srcmods="$dracutsysrootdir/lib/modules/$kernel/"
 
-# shellcheck disable=SC2154
 [[ $drivers_dir ]] && {
     if ! command -v kmod &> /dev/null && vercmp "$(modprobe --version | cut -d' ' -f3)" lt 3.7; then
         dfatal 'To use --kmoddir option module-init-tools >= 3.7 is required.'
@@ -108,7 +105,6 @@ fi
 # to check for required installed binaries
 # issues a standardized warning message
 require_binaries() {
-    # shellcheck disable=SC2154
     local _module_name="${moddir##*/}"
     local _ret=0
 
@@ -119,7 +115,7 @@ require_binaries() {
 
     for cmd in "$@"; do
         if ! find_binary "$cmd" &> /dev/null; then
-            dinfo "Module '${_module_name#[0-9][0-9]}' will not be installed, because command '$cmd' could not be found!"
+            ddebug "Module '${_module_name#[0-9][0-9]}' will not be installed, because command '$cmd' could not be found!"
             ((_ret++))
         fi
     done
@@ -154,7 +150,6 @@ require_any_binary() {
 # to check for required kernel modules
 # issues a standardized warning message
 require_kernel_modules() {
-    # shellcheck disable=SC2154
     local _module_name="${moddir##*/}"
     local _ret=0
 
@@ -180,7 +175,6 @@ dracut_need_initqueue() {
 }
 
 dracut_module_included() {
-    # shellcheck disable=SC2154
     [[ " $mods_to_load $modules_loaded " == *\ $*\ * ]]
 }
 
@@ -317,10 +311,12 @@ dracut_install() {
 dracut_instmods() {
     local _ret _silent=0
     local i
-    # shellcheck disable=SC2154
     [[ $no_kernel == yes ]] && return
     for i in "$@"; do
-        [[ $i == "--silent" ]] && _silent=1
+        if [[ $i == "--silent" ]]; then
+            _silent=1
+            break
+        fi
     done
 
     if $DRACUT_INSTALL \
@@ -391,7 +387,6 @@ inst_fsck_help() {
 # be applied, else will ignore hostonly mode and try to install all
 # given modules.
 optional_hostonly() {
-    # shellcheck disable=SC2154
     if [[ $hostonly_mode == "strict" ]]; then
         printf -- "%s" "$hostonly"
     else
@@ -443,7 +438,6 @@ inst_rule_programs() {
     # shellcheck disable=SC2013
     for _prog in $(sed -nr 's/.*PROGRAM==?"([^ "]+).*/\1/p' "$1"); do
         _bin=""
-        # shellcheck disable=SC2154
         if [[ -x ${udevdir}/$_prog ]]; then
             _bin="${udevdir}"/$_prog
         elif [[ ${_prog/\$env\{/} == "$_prog" ]]; then
@@ -521,7 +515,7 @@ inst_rules() {
     inst_dir "$_target"
     for _rule in "$@"; do
         if [ "${_rule#/}" = "$_rule" ]; then
-            for r in "$dracutsysrootdir${udevdir}/rules.d" ${hostonly:+"$dracutsysrootdir"/etc/udev/rules.d}; do
+            for r in ${hostonly:+"$dracutsysrootdir"/etc/udev/rules.d} "$dracutsysrootdir${udevdir}/rules.d"; do
                 [[ -e $r/$_rule ]] || continue
                 _found="$r/$_rule"
                 inst_rule_programs "$_found"
@@ -540,7 +534,7 @@ inst_rules() {
             inst_rule_initqueue "$_found"
             inst_simple "$_found" "$_target/${_found##*/}"
         done
-        [[ $_found ]] || dinfo "Skipping udev rule: $_rule"
+        [[ $_found ]] || ddebug "Skipping udev rule: $_rule"
     done
 }
 
@@ -567,7 +561,7 @@ inst_rules_wildcard() {
             _found=$_rule
         done
     fi
-    [[ $_found ]] || dinfo "Skipping udev rule: $_rule"
+    [[ $_found ]] || ddebug "Skipping udev rule: $_rule"
 }
 
 # make sure that library links are correct and up to date
@@ -616,7 +610,7 @@ prepare_udev_rules() {
                     printf '%sIMPORT{builtin}="blkid"\n' "${line%%IMPORT BLKID}"
                 else
                     # shellcheck disable=SC2016
-                    printf '%sIMPORT{program}="/sbin/blkid -o udev -p $tempnode"\n' "${line%%IMPORT BLKID}"
+                    printf '%sIMPORT{program}="/sbin/blkid -o udev -p $devnode"\n' "${line%%IMPORT BLKID}"
                 fi
             else
                 echo "$line"
@@ -639,7 +633,7 @@ inst_hook() {
         dfatal "No such hook type $1. Aborting initrd creation."
         exit 1
     fi
-    hook="/lib/dracut/hooks/${1}/${2}-${3##*/}"
+    hook="/var/lib/dracut/hooks/${1}/${2}-${3##*/}"
     inst_simple "$3" "$hook"
     chmod u+x "$initdir/$hook"
 }
@@ -715,6 +709,15 @@ inst_libdir_file() {
     [[ ${#_files[@]} -gt 0 ]] && inst_multiple "${_files[@]}"
 }
 
+# install sysusers files
+inst_sysusers() {
+    inst_multiple -o "$sysusers/$*"
+
+    if [[ $hostonly ]]; then
+        inst_multiple -H -o "$sysusersconfdir/$*"
+    fi
+}
+
 # get a command to decompress the given file
 get_decompress_cmd() {
     case "$1" in
@@ -739,7 +742,7 @@ inst_decompress() {
         inst_simple "${_src}"
         # Decompress with chosen tool.  We assume that tool changes name e.g.
         # from 'name.gz' to 'name'.
-        ${_cmd} "${initdir}${_src}"
+        ${_cmd} "${initdir}${_src#"$dracutsysrootdir"}"
     done
 }
 
@@ -764,29 +767,19 @@ module_check() {
     local _forced=0
     local _hostonly=$hostonly
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [ $# -eq 2 ] && _forced=$2
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # if we do not have a check script, we are unconditionally included
-        [[ -x $_moddir/check ]] || return 0
-        [[ $_forced != 0 ]] && unset hostonly
-        # don't quote $hostonly to leave argument empty
-        # shellcheck disable=SC2086
-        "$_moddir"/check $hostonly
-        _ret=$?
-    else
-        unset check depends cmdline install installkernel
-        check() { true; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        is_func check || return 0
-        [[ $_forced != 0 ]] && unset hostonly
-        # don't quote $hostonly to leave argument empty
-        # shellcheck disable=SC2086
-        moddir="$_moddir" check $hostonly
-        _ret=$?
-        unset check depends cmdline install installkernel
-    fi
+    [ $# -ge 2 ] && _forced=$2
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    check() { true; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    is_func check || return 0
+    [[ $_forced != 0 ]] && unset hostonly
+    # don't quote $hostonly to leave argument empty
+    # shellcheck disable=SC2086
+    moddir="$_moddir" check $hostonly
+    _ret=$?
+    unset check depends cmdline install installkernel
     hostonly=$_hostonly
     return $_ret
 }
@@ -800,21 +793,14 @@ module_check_mount() {
     local _ret
     export mount_needs=1
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # if we do not have a check script, we are unconditionally included
-        [[ -x $_moddir/check ]] || return 0
-        mount_needs=1 "$_moddir"/check 0
-        _ret=$?
-    else
-        unset check depends cmdline install installkernel
-        check() { false; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        moddir=$_moddir check 0
-        _ret=$?
-        unset check depends cmdline install installkernel
-    fi
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    check() { false; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    moddir=$_moddir check 0
+    _ret=$?
+    unset check depends cmdline install installkernel
     unset mount_needs
     return "$_ret"
 }
@@ -826,22 +812,15 @@ module_depends() {
     local _moddir=$2
     local _ret
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # if we do not have a check script, we have no deps
-        [[ -x $_moddir/check ]] || return 0
-        "$_moddir"/check -d
-        return $?
-    else
-        unset check depends cmdline install installkernel
-        depends() { true; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        moddir=$_moddir depends
-        _ret=$?
-        unset check depends cmdline install installkernel
-        return $_ret
-    fi
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    depends() { true; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    moddir=$_moddir depends
+    _ret=$?
+    unset check depends cmdline install installkernel
+    return $_ret
 }
 
 # module_cmdline <dracut module> [<module path>]
@@ -851,21 +830,15 @@ module_cmdline() {
     local _moddir=$2
     local _ret
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # shellcheck disable=SC1090
-        [[ -x $_moddir/cmdline ]] && . "$_moddir/cmdline"
-        return $?
-    else
-        unset check depends cmdline install installkernel
-        cmdline() { true; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        moddir="$_moddir" cmdline
-        _ret=$?
-        unset check depends cmdline install installkernel
-        return $_ret
-    fi
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    cmdline() { true; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    moddir="$_moddir" cmdline
+    _ret=$?
+    unset check depends cmdline install installkernel
+    return $_ret
 }
 
 # module_install <dracut module> [<module path>]
@@ -875,21 +848,15 @@ module_install() {
     local _moddir=$2
     local _ret
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # shellcheck disable=SC1090
-        [[ -x $_moddir/install ]] && . "$_moddir/install"
-        return $?
-    else
-        unset check depends cmdline install installkernel
-        install() { true; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        moddir="$_moddir" install
-        _ret=$?
-        unset check depends cmdline install installkernel
-        return $_ret
-    fi
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    install() { true; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    moddir="$_moddir" install
+    _ret=$?
+    unset check depends cmdline install installkernel
+    return $_ret
 }
 
 # module_installkernel <dracut module> [<module path>]
@@ -899,21 +866,15 @@ module_installkernel() {
     local _moddir=$2
     local _ret
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    [[ -d $_moddir ]] || return 1
-    if [[ ! -f $_moddir/module-setup.sh ]]; then
-        # shellcheck disable=SC1090
-        [[ -x $_moddir/installkernel ]] && . "$_moddir/installkernel"
-        return $?
-    else
-        unset check depends cmdline install installkernel
-        installkernel() { true; }
-        # shellcheck disable=SC1090
-        . "$_moddir"/module-setup.sh
-        moddir="$_moddir" installkernel
-        _ret=$?
-        unset check depends cmdline install installkernel
-        return $_ret
-    fi
+    [[ -f $_moddir/module-setup.sh ]] || return 1
+    unset check depends cmdline install installkernel
+    installkernel() { true; }
+    # shellcheck disable=SC1090
+    . "$_moddir"/module-setup.sh
+    moddir="$_moddir" installkernel
+    _ret=$?
+    unset check depends cmdline install installkernel
+    return $_ret
 }
 
 # check_mount <dracut module> [<use_as_dep>] [<module path>]
@@ -926,7 +887,6 @@ check_mount() {
     local _moddep
 
     [[ -z $_moddir ]] && _moddir=$(dracut_module_path "$1")
-    # shellcheck disable=SC2154
     [ "${#host_fs_types[@]}" -le 0 ] && return 1
 
     # If we are already scheduled to be loaded, no need to check again.
@@ -938,17 +898,16 @@ check_mount() {
 
     [[ $2 ]] || mods_checked_as_dep+=" $_mod "
 
-    # shellcheck disable=SC2154
     if [[ " $omit_dracutmodules " == *\ $_mod\ * ]]; then
         return 1
     fi
 
     if [[ " $dracutmodules $add_dracutmodules $force_add_dracutmodules" == *\ $_mod\ * ]]; then
         module_check_mount "$_mod" "$_moddir"
-        ret=$?
+        _ret=$?
 
-        # explicit module, so also accept ret=255
-        [[ $ret == 0 || $ret == 255 ]] || return 1
+        # explicit module, so also accept _ret=255
+        [[ $_ret == 0 || $_ret == 255 ]] || return 1
     else
         # module not in our list
         if [[ $dracutmodules == all ]]; then
@@ -1012,22 +971,22 @@ check_module() {
     if [[ " $dracutmodules $add_dracutmodules $force_add_dracutmodules" == *\ $_mod\ * ]]; then
         if [[ " $dracutmodules $force_add_dracutmodules " == *\ $_mod\ * ]]; then
             module_check "$_mod" 1 "$_moddir"
-            ret=$?
+            _ret=$?
         else
             module_check "$_mod" 0 "$_moddir"
-            ret=$?
+            _ret=$?
         fi
-        # explicit module, so also accept ret=255
-        [[ $ret == 0 || $ret == 255 ]] || return 1
+        # explicit module, so also accept _ret=255
+        [[ $_ret == 0 || $_ret == 255 ]] || return 1
     else
         # module not in our list
         if [[ $dracutmodules == all ]]; then
             # check, if we can and should install this module
             module_check "$_mod" 0 "$_moddir"
-            ret=$?
-            if [[ $ret != 0 ]]; then
+            _ret=$?
+            if [[ $_ret != 0 ]]; then
                 [[ $2 ]] && return 1
-                [[ $ret != 255 ]] && return 1
+                [[ $_ret != 255 ]] && return 1
             fi
         else
             # skip this module
@@ -1069,8 +1028,7 @@ for_each_module_dir() {
     local _reason
     _func=$1
     for _moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
-        [[ -d $_moddir ]] || continue
-        [[ -e $_moddir/install || -e $_moddir/installkernel || -e $_moddir/module-setup.sh ]] || continue
+        [[ -e $_moddir/module-setup.sh ]] || continue
         _mod=${_moddir##*/}
         _mod=${_mod#[0-9][0-9]}
         $_func "$_mod" 1 "$_moddir"
@@ -1190,7 +1148,7 @@ is_qemu_virtualized() {
     # 1 if a virt environment could not be detected
     # 255 if any error was encountered
     if type -P systemd-detect-virt > /dev/null 2>&1; then
-        if ! vm=$(systemd-detect-virt --vm > /dev/null 2>&1); then
+        if ! vm=$(systemd-detect-virt --vm 2> /dev/null); then
             return 255
         fi
         [[ $vm == "qemu" ]] && return 0

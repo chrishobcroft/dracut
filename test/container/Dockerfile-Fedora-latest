@@ -1,21 +1,15 @@
 FROM registry.fedoraproject.org/fedora:latest
 
-MAINTAINER https://github.com/dracutdevs/dracut
-
-ENV container docker
-LABEL RUN="docker run -it --name NAME --privileged --ipc=host --net=host --pid=host -e NAME=NAME -e IMAGE=IMAGE IMAGE"
-
-RUN echo 'export DRACUT_NO_XATTR=1 KVERSION=$(cd /lib/modules; ls -1 | tail -1)' > /etc/profile.d/dracut-test.sh
-
 # Install needed packages for the dracut CI container
 RUN dnf -y install --setopt=install_weak_deps=False \
     asciidoc \
+    astyle \
     bash-completion \
-    biosdevname \
     bluez \
     btrfs-progs \
     busybox \
     bzip2 \
+    cargo \
     cifs-utils \
     cryptsetup \
     dash \
@@ -33,6 +27,7 @@ RUN dnf -y install --setopt=install_weak_deps=False \
     iproute \
     iputils \
     iscsi-initiator-utils \
+    jq \
     kbd \
     kernel \
     kmod-devel \
@@ -54,7 +49,8 @@ RUN dnf -y install --setopt=install_weak_deps=False \
     parted \
     pcsc-lite \
     pigz \
-    qemu-system-x86-core \
+    qemu \
+    qrencode \
     rng-tools \
     rpm-build \
     sbsigntools \
@@ -63,16 +59,13 @@ RUN dnf -y install --setopt=install_weak_deps=False \
     shfmt \
     squashfs-tools \
     strace \
-    sudo \
+    systemd-boot-unsigned \
     systemd-networkd \
     systemd-resolved \
+    systemd-ukify \
     tar \
     tcpdump \
     tpm2-tools \
     wget \
-    which \
     xz \
     && dnf -y remove dracut --noautoremove && dnf -y update && dnf clean all
-
-# Set default command
-CMD ["/usr/bin/bash"]

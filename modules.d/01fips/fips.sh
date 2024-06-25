@@ -94,17 +94,14 @@ fips_load_crypto() {
     local _module
     local _found
 
-    read -d '' -r FIPSMODULES < /etc/fipsmodules
-
     fips_info "Loading and integrity checking all crypto modules"
-    mv /etc/modprobe.d/fips.conf /etc/modprobe.d/fips.conf.bak
-    for _module in $FIPSMODULES; do
+    while read -r _module; do
         if [ "$_module" != "tcrypt" ]; then
             if ! nonfatal_modprobe "${_module}" 2> /tmp/fips.modprobe_err; then
                 # check if kernel provides generic algo
                 _found=0
                 while read -r _k _ _v || [ -n "$_k" ]; do
-                    [ "$_k" != "name" -a "$_k" != "driver" ] && continue
+                    [ "$_k" != "name" ] && [ "$_k" != "driver" ] && continue
                     [ "$_v" != "$_module" ] && continue
                     _found=1
                     break
@@ -112,8 +109,11 @@ fips_load_crypto() {
                 [ "$_found" = "0" ] && cat /tmp/fips.modprobe_err >&2 && return 1
             fi
         fi
-    done
-    mv /etc/modprobe.d/fips.conf.bak /etc/modprobe.d/fips.conf
+    done < /etc/fipsmodules
+    if [ -f /etc/fips.conf ]; then
+        mkdir -p /run/modprobe.d
+        cp /etc/fips.conf /run/modprobe.d/fips.conf
+    fi
 
     fips_info "Self testing crypto algorithms"
     modprobe tcrypt || return 1
@@ -162,7 +162,7 @@ do_fips() {
             elif ! [ -e "/boot/${BOOT_IMAGE_PATH}/${BOOT_IMAGE_NAME}" ]; then
                 #if /boot is not a separate partition BOOT_IMAGE might start with /boot
                 BOOT_IMAGE_PATH=${BOOT_IMAGE_PATH#"/boot"}
-                #on some achitectures BOOT_IMAGE does not contain path to kernel
+                #on some architectures BOOT_IMAGE does not contain path to kernel
                 #so if we can't find anything, let's treat it in the same way as if it was empty
                 if ! [ -e "/boot/${BOOT_IMAGE_PATH}/${BOOT_IMAGE_NAME}" ]; then
                     BOOT_IMAGE_NAME="vmlinuz-${KERNEL}"

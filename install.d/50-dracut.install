@@ -1,70 +1,79 @@
 #!/bin/bash
 
-COMMAND="$1"
-KERNEL_VERSION="$2"
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+#shellcheck disable=SC2034
 BOOT_DIR_ABS="$3"
 KERNEL_IMAGE="$4"
 
-# If KERNEL_INSTALL_MACHINE_ID is defined but empty, BOOT_DIR_ABS is a fake directory.
-# So, let's skip to create initrd.
-if ! [[ ${KERNEL_INSTALL_MACHINE_ID-x} ]]; then
+# If the initrd was provided on the kernel command line, we shouldn't generate our own.
+if [[ "$COMMAND" != "add" || "$#" -gt 4 ]]; then
     exit 0
 fi
 
-if [[ -d "$BOOT_DIR_ABS" ]]; then
-    INITRD="initrd"
-else
-    BOOT_DIR_ABS="/boot"
-    INITRD="initramfs-${KERNEL_VERSION}.img"
+# Do not attempt to create initramfs if the supplied image is already a UKI
+if [[ "$KERNEL_INSTALL_IMAGE_TYPE" = "uki" ]]; then
+    exit 0
 fi
 
-ret=0
-case "$COMMAND" in
-    add)
-        INITRD_IMAGE_PREGENERATED=${KERNEL_IMAGE%/*}/initrd
-        if [[ -f ${INITRD_IMAGE_PREGENERATED} ]]; then
-            # we found an initrd at the same place as the kernel
-            # use this and don't generate a new one
-            cp --reflink=auto "$INITRD_IMAGE_PREGENERATED" "$BOOT_DIR_ABS/$INITRD" \
-                && chown root:root "$BOOT_DIR_ABS/$INITRD" \
-                && chmod 0600 "$BOOT_DIR_ABS/$INITRD" \
-                && exit 0
-        fi
+if [[ "${KERNEL_INSTALL_INITRD_GENERATOR:-dracut}" = "dracut" ]]; then
+    # We are the initrd generator
+    IMAGE="initrd"
+    UEFI_OPTS="--no-uefi"
+else
+    exit 0
+fi
 
-        if [[ -f /etc/kernel/cmdline ]]; then
-            read -r -d '' -a BOOT_OPTIONS < /etc/kernel/cmdline
-        elif [[ -f /usr/lib/kernel/cmdline ]]; then
-            read -r -d '' -a BOOT_OPTIONS < /usr/lib/kernel/cmdline
-        else
-            declare -a BOOT_OPTIONS
+if [[ "$KERNEL_INSTALL_UKI_GENERATOR" = "dracut" ]]; then
+    # We are chosen to generate the UKI as well as initrd
+    IMAGE="uki.efi"
+    UEFI_OPTS="--uefi"
+fi
 
-            read -r -d '' -a line < /proc/cmdline
-            for i in "${line[@]}"; do
-                [[ "${i#initrd=*}" != "$i" ]] && continue
-                BOOT_OPTIONS+=("$i")
-            done
-        fi
+if [[ -f ${KERNEL_IMAGE%/*}/$IMAGE ]]; then
+    # we found an initrd or uki.efi at the same place as the kernel
+    # use this and don't generate a new one
+    [[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo \
+        "There is an $IMAGE image at the same place as the kernel, skipping generating a new one"
+    cp --reflink=auto "${KERNEL_IMAGE%/*}/$IMAGE" "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && chown root:root "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && chmod 0600 "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && exit 0
+fi
 
-        unset noimageifnotneeded
+if [ -n "$KERNEL_INSTALL_CONF_ROOT" ]; then
+    if [ -f "$KERNEL_INSTALL_CONF_ROOT/cmdline" ]; then
+        read -r -d '' -a BOOT_OPTIONS < "$KERNEL_INSTALL_CONF_ROOT/cmdline"
+    fi
+elif [[ -f /etc/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /etc/kernel/cmdline
+elif [[ -f /usr/lib/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /usr/lib/kernel/cmdline
+else
+    declare -a BOOT_OPTIONS
 
-        for ((i=0; i < "${#BOOT_OPTIONS[@]}"; i++)); do
-            # shellcheck disable=SC1001
-            if [[ ${BOOT_OPTIONS[$i]} == root\=PARTUUID\=* ]]; then
-                noimageifnotneeded="yes"
-                break
-            fi
-        done
+    read -r -d '' -a line < /proc/cmdline
+    for i in "${line[@]}"; do
+        [[ ${i#initrd=*} != "$i" ]] && continue
+        BOOT_OPTIONS+=("$i")
+    done
+fi
 
-        dracut -f \
-            ${noimageifnotneeded:+--noimageifnotneeded} \
-            $([[ "$KERNEL_INSTALL_VERBOSE" == 1 ]] && echo --verbose) \
-            "$BOOT_DIR_ABS/$INITRD" \
-            "$KERNEL_VERSION"
-        ret=$?
-	;;
-    remove)
-        rm -f -- "$BOOT_DIR_ABS/$INITRD"
-        ret=$?
-	;;
-esac
-exit $ret
+unset noimageifnotneeded
+
+for ((i = 0; i < "${#BOOT_OPTIONS[@]}"; i++)); do
+    # shellcheck disable=SC1001
+    if [[ ${BOOT_OPTIONS[$i]} == root\=PARTUUID\=* ]]; then
+        noimageifnotneeded="yes"
+        break
+    fi
+done
+
+# shellcheck disable=SC2046
+dracut -f \
+    ${noimageifnotneeded:+--noimageifnotneeded} \
+    $([[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo --verbose) \
+    $([[ -n $KERNEL_IMAGE ]] && echo --kernel-image "$KERNEL_IMAGE") \
+    "$UEFI_OPTS" \
+    --kver "$KERNEL_VERSION" \
+    "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" || exit 1

@@ -10,6 +10,7 @@ check() {
 
 # called by dracut
 depends() {
+    echo net-lib kernel-network-modules
     return 0
 }
 
@@ -23,9 +24,11 @@ installkernel() {
 install() {
     local _arch
 
-    #Adding default link
+    # Adding default link and (if exists) 98-default-mac-none.link
     if dracut_module_included "systemd"; then
-        inst_multiple -o "${systemdnetwork}/99-default.link"
+        inst_multiple -o \
+            "${systemdnetwork}/99-default.link" \
+            "${systemdnetwork}/98-default-mac-none.link"
         [[ $hostonly ]] && inst_multiple -H -o "${systemdnetworkconfdir}/*.link"
     fi
 
@@ -68,7 +71,7 @@ install() {
         (
             # shellcheck disable=SC1090
             . "$i"
-            if ! [ "${ONBOOT}" = "no" -o "${ONBOOT}" = "NO" ] \
+            if ! [ "${ONBOOT}" = "no" ] || [ "${ONBOOT}" = "NO" ] \
                 && [ -n "${TEAM_MASTER}${TEAM_CONFIG}${TEAM_PORT_CONFIG}" ]; then
                 if [ -n "$TEAM_CONFIG" ] && [ -n "$DEVICE" ]; then
                     mkdir -p "$initdir"/etc/teamd

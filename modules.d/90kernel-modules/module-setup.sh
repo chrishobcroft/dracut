@@ -2,9 +2,10 @@
 
 # called by dracut
 installkernel() {
-    local _blockfuncs='ahci_platform_get_resources|ata_scsi_ioctl|scsi_add_host|blk_cleanup_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device|usb_stor_disconnect|mmc_add_host|sdhci_add_host|scsi_add_host_with_dma|blk_mq_alloc_disk|blk_mq_alloc_request|blk_mq_destroy_queue|blk_cleanup_disk'
+    local _blockfuncs='ahci_platform_get_resources|ata_scsi_ioctl|scsi_add_host|blk_cleanup_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device|usb_stor_disconnect|mmc_add_host|sdhci_add_host|scsi_add_host_with_dma|blk_alloc_disk|blk_mq_alloc_disk|blk_mq_alloc_request|blk_mq_destroy_queue|blk_cleanup_disk'
     local -A _hostonly_drvs
 
+    # shellcheck disable=SC2317  # called later by for_each_host_dev_and_slaves
     record_block_dev_drv() {
 
         for _mod in $(get_dev_module /dev/block/"$1"); do
@@ -55,10 +56,10 @@ installkernel() {
             "=drivers/watchdog"
 
         instmods \
-            yenta_socket spi_pxa2xx_platform \
-            atkbd i8042 firewire-ohci pcmcia hv-vmbus \
+            yenta_socket intel_lpss_pci spi_pxa2xx_platform \
+            atkbd i8042 firewire-ohci hv-vmbus \
             virtio virtio_ring virtio_pci pci_hyperv \
-            "=drivers/pcmcia"
+            surface_aggregator_registry psmouse
 
         if [[ ${DRACUT_ARCH:-$(uname -m)} == arm* || ${DRACUT_ARCH:-$(uname -m)} == aarch64 || ${DRACUT_ARCH:-$(uname -m)} == riscv* ]]; then
             # arm/aarch64 specific modules
@@ -71,6 +72,7 @@ installkernel() {
                 "=drivers/gpio" \
                 "=drivers/hwmon" \
                 "=drivers/hwspinlock" \
+                "=drivers/interconnect" \
                 "=drivers/i2c/busses" \
                 "=drivers/mailbox" \
                 "=drivers/memory" \
@@ -86,6 +88,7 @@ installkernel() {
                 "=drivers/rtc" \
                 "=drivers/soc" \
                 "=drivers/spi" \
+                "=drivers/spmi" \
                 "=drivers/usb/chipidea" \
                 "=drivers/usb/dwc2" \
                 "=drivers/usb/dwc3" \
@@ -94,7 +97,8 @@ installkernel() {
                 "=drivers/usb/misc" \
                 "=drivers/usb/musb" \
                 "=drivers/usb/phy" \
-                "=drivers/scsi/hisi_sas"
+                "=drivers/scsi/hisi_sas" \
+                "=net/qrtr"
         fi
 
         awk -F: '/^\// {print $1}' "$srcmods/modules.dep" 2> /dev/null | instmods

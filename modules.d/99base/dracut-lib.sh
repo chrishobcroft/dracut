@@ -37,7 +37,7 @@ strstr() {
 # matches; as it would match anything, it's not an interesting case.
 strglob() {
     # shellcheck disable=SC2295
-    [ -n "$1" -a -z "${1##$2}" ]
+    [ -n "$1" ] && [ -z "${1##$2}" ]
 }
 
 # returns OK if $1 contains (anywhere) a match of glob pattern $2
@@ -45,7 +45,7 @@ strglob() {
 # matches; as it would match anything, it's not an interesting case.
 strglobin() {
     # shellcheck disable=SC2295
-    [ -n "$1" -a -z "${1##*$2*}" ]
+    [ -n "$1" ] && [ -z "${1##*$2*}" ]
 }
 
 # returns OK if $1 contains literal string $2 at the beginning, and isn't empty
@@ -266,7 +266,7 @@ getargnum() {
     _b=$(getarg "$1") || _b=${_b:-"$_default"}
     if [ -n "$_b" ]; then
         isdigit "$_b" && _b=$((_b)) \
-            && [ $_b -ge "$_min" ] && [ $_b -le "$_max" ] && echo $_b && return
+            && [ "$_b" -ge "$_min" ] && [ "$_b" -le "$_max" ] && echo "$_b" && return
     fi
     echo "$_default"
 }
@@ -337,7 +337,7 @@ getoptcomma() {
 # Splits given string 'str' with separator 'sep' into variables 'var1', 'var2',
 # 'varN'.  If number of fields is less than number of variables, remaining are
 # not set.  If number of fields is greater than number of variables, the last
-# variable takes remaining fields.  In short - it acts similary to 'read'.
+# variable takes remaining fields.  In short - it acts similarly to 'read'.
 #
 # splitsep sep str var1 var2 varN
 #
@@ -354,14 +354,14 @@ splitsep() {
     shift 2
     local tmp
 
-    while [ -n "$str" -a "$#" -gt 1 ]; do
+    while [ -n "$str" ] && [ "$#" -gt 1 ]; do
         tmp="${str%%"$sep"*}"
         eval "$1='${tmp}'"
         str="${str#"$tmp"}"
         str="${str#"$sep"}"
         shift
     done
-    [ -n "$str" -a -n "$1" ] && eval "$1='$str'"
+    [ -n "$str" ] && [ -n "$1" ] && eval "$1='$str'"
     debug_on
     return 0
 }
@@ -410,13 +410,17 @@ source_hook() {
 }
 
 check_finished() {
-    local f
+    local f rc=0
     for f in "$hookdir"/initqueue/finished/*.sh; do
         [ "$f" = "$hookdir/initqueue/finished/*.sh" ] && return 0
         # shellcheck disable=SC1090
-        { [ -e "$f" ] && (. "$f"); } || return 1
+        if [ -e "$f" ] && (. "$f"); then
+            rm -f "$f"
+        else
+            rc=1
+        fi
     done
-    return 0
+    return $rc
 }
 
 source_conf() {
@@ -447,7 +451,7 @@ die() {
     fi
 
     if [ -n "$DRACUT_SYSTEMD" ]; then
-        systemctl --no-block --force halt
+        systemctl --no-block --force poweroff
     fi
 
     exit 1
@@ -933,15 +937,15 @@ _emergency_shell() {
         _ctty="$(RD_DEBUG='' getarg rd.ctty=)" && _ctty="/dev/${_ctty##*/}"
         if [ -z "$_ctty" ]; then
             _ctty=console
-            while [ -f /sys/class/tty/$_ctty/active ]; do
-                read -r _ctty < /sys/class/tty/$_ctty/active
+            while [ -f "/sys/class/tty/$_ctty/active" ]; do
+                read -r _ctty < "/sys/class/tty/$_ctty/active"
                 _ctty=${_ctty##* } # last one in the list
             done
             _ctty=/dev/$_ctty
         fi
         [ -c "$_ctty" ] || _ctty=/dev/tty1
         case "$(/usr/bin/setsid --help 2>&1)" in *--ctty*) CTTY="--ctty" ;; esac
-        setsid $CTTY /bin/sh -i -l 0<> $_ctty 1<> $_ctty 2<> $_ctty
+        setsid ${CTTY:+"${CTTY}"} /bin/sh -i -l 0<> "$_ctty" 1<> "$_ctty" 2<> "$_ctty"
     fi
 }
 
@@ -969,25 +973,25 @@ emergency_shell() {
     _emergency_action=$(getarg rd.emergency)
     [ -z "$_emergency_action" ] \
         && [ -e /run/initramfs/.die ] \
-        && _emergency_action=halt
+        && _emergency_action=poweroff
 
     if getargbool 1 rd.shell -d -y rdshell || getarg rd.break -d rdbreak; then
         _emergency_shell "$_rdshell_name"
     else
         source_hook "$hook"
         warn "$action has failed. To debug this issue add \"rd.shell rd.debug\" to the kernel command line."
-        [ -z "$_emergency_action" ] && _emergency_action=halt
+        [ -z "$_emergency_action" ] && _emergency_action=poweroff
     fi
 
     case "$_emergency_action" in
         reboot)
-            reboot || exit 1
+            reboot -f || exit 1
             ;;
         poweroff)
-            poweroff || exit 1
+            poweroff -f || exit 1
             ;;
         halt)
-            halt || exit 1
+            halt -f || exit 1
             ;;
     esac
 }
@@ -998,8 +1002,8 @@ export_n() {
     local var
     local val
     for var in "$@"; do
-        eval val=\$$var
-        unset $var
+        eval "val=\$$var"
+        unset "$var"
         [ -n "$val" ] && eval "$var=\"$val\""
     done
 }
@@ -1126,8 +1130,20 @@ show_memstats() {
     esac
 }
 
+# parameter: <memory_name:>  example: MemTotal:
+# Check /proc/meminfo
+# echo the field value, if present.
+check_meminfo() {
+    local - m sz
+    set +x
+    while read -r m sz _ || [ "$m" ]; do
+        [ "$m" = "$1" ] && echo "$sz" && return 0
+    done < /proc/meminfo
+    return 1
+}
+
 remove_hostonly_files() {
-    rm -fr /etc/cmdline /etc/cmdline.d/*.conf "$hookdir/initqueue/finished"
+    rm -fr /etc/cmdline /etc/cmdline.d/*.conf "$hookdir"/initqueue/finished/*.sh
     if [ -f /lib/dracut/hostonly-files ]; then
         while read -r line || [ -n "$line" ]; do
             [ -e "$line" ] || [ -h "$line" ] || continue

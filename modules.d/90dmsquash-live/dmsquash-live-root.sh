@@ -1,6 +1,7 @@
 #!/bin/sh
 
 type getarg > /dev/null 2>&1 || . /lib/dracut-lib.sh
+type det_fs > /dev/null 2>&1 || . /lib/fs-lib.sh
 
 command -v unpack_archive > /dev/null || . /lib/img-lib.sh
 
@@ -58,27 +59,34 @@ get_check_dev() {
     echo "$_udevinfo" | grep "DEVNAME=" | sed 's/DEVNAME=//'
 }
 
-# Find the right device to run check on
-check_dev=$(get_check_dev "$livedev")
-# CD/DVD media check
-[ -b "$check_dev" ] && fs=$(blkid -s TYPE -o value "$check_dev")
-if [ "$fs" = "iso9660" -o "$fs" = "udf" ]; then
-    check="yes"
-fi
-getarg rd.live.check -d check || check=""
-if [ -n "$check" ]; then
-    type plymouth > /dev/null 2>&1 && plymouth --hide-splash
-    if [ -n "$DRACUT_SYSTEMD" ]; then
-        p=$(dev_unit_name "$check_dev")
-        systemctl start checkisomd5@"${p}".service
-    else
-        checkisomd5 --verbose "$check_dev"
+# Check ISO checksum only if we have a path to a block device (or just its name
+# without '/dev'). In other words, in this context, we perform the check only
+# if the given $livedev is not a filesystem file image.
+if [ ! -f "$livedev" ]; then
+    # Find the right device to run check on
+    check_dev=$(get_check_dev "$livedev")
+    # CD/DVD media check
+    [ -b "$check_dev" ] && fs=$(det_fs "$check_dev")
+    if [ "$fs" = "iso9660" ] || [ "$fs" = "udf" ]; then
+        check="yes"
     fi
-    if [ $? -eq 1 ]; then
-        die "CD check failed!"
-        exit 1
+    getarg rd.live.check -d check || check=""
+    if [ -n "$check" ]; then
+        type plymouth > /dev/null 2>&1 && plymouth --hide-splash
+        if [ -n "$DRACUT_SYSTEMD" ]; then
+            p=$(dev_unit_name "$check_dev")
+            systemctl start checkisomd5@"${p}".service
+        else
+            checkisomd5 --verbose "$check_dev"
+        fi
+        if [ $? -eq 1 ]; then
+            warn "Media check failed! We do not recommend using this medium. System will halt in 12 hours"
+            sleep 43200
+            die "Media check failed!"
+            exit 1
+        fi
+        type plymouth > /dev/null 2>&1 && plymouth --show-splash
     fi
-    type plymouth > /dev/null 2>&1 && plymouth --show-splash
 fi
 
 ln -s "$livedev" /run/initramfs/livedev
@@ -108,9 +116,9 @@ if [ -f "$livedev" ]; then
         auto) die "cannot mount live image (unknown filesystem type)" ;;
         *) FSIMG=$livedev ;;
     esac
-    [ -e /sys/fs/"$fstype" ] || modprobe "$fstype"
+    load_fstype "$fstype"
 else
-    livedev_fstype=$(blkid -o value -s TYPE "$livedev")
+    livedev_fstype=$(det_fs "$livedev")
     if [ "$livedev_fstype" = "squashfs" ]; then
         # no mount needed - we've already got the LiveOS image in $livedev
         SQUASHED=$livedev
@@ -140,13 +148,15 @@ do_live_overlay() {
         pathspec=${overlay##*:}
     fi
 
-    if [ -z "$pathspec" -o "$pathspec" = "auto" ]; then
+    if [ -z "$pathspec" ] || [ "$pathspec" = "auto" ]; then
         pathspec="/${live_dir}/overlay-$l-$u"
+    elif ! str_starts "$pathspec" "/"; then
+        pathspec=/"${pathspec}"
     fi
     devspec=${overlay%%:*}
 
     # need to know where to look for the overlay
-    if [ -z "$setup" -a -n "$devspec" -a -n "$pathspec" -a -n "$overlay" ]; then
+    if [ -z "$setup" ] && [ -n "$devspec" ] && [ -n "$pathspec" ] && [ -n "$overlay" ]; then
         mkdir -m 0755 -p /run/initramfs/overlayfs
         if ismounted "$devspec"; then
             devmnt=$(findmnt -e -v -n -o 'TARGET' --source "$devspec")
@@ -156,8 +166,8 @@ do_live_overlay() {
         else
             mount -n -t auto "$devspec" /run/initramfs/overlayfs || :
         fi
-        if [ -f /run/initramfs/overlayfs$pathspec -a -w /run/initramfs/overlayfs$pathspec ]; then
-            OVERLAY_LOOPDEV=$(losetup -f --show ${readonly_overlay:+-r} /run/initramfs/overlayfs$pathspec)
+        if [ -f "/run/initramfs/overlayfs$pathspec" ] && [ -w "/run/initramfs/overlayfs$pathspec" ]; then
+            OVERLAY_LOOPDEV=$(losetup -f --show ${readonly_overlay:+-r} "/run/initramfs/overlayfs$pathspec")
             over=$OVERLAY_LOOPDEV
             umount -l /run/initramfs/overlayfs || :
             oltype=$(det_img_fs "$OVERLAY_LOOPDEV")
@@ -184,10 +194,10 @@ do_live_overlay() {
                     setup="yes"
                 fi
             fi
-        elif [ -d /run/initramfs/overlayfs$pathspec ] \
-            && [ -d /run/initramfs/overlayfs$pathspec/../ovlwork ]; then
-            ln -s /run/initramfs/overlayfs$pathspec /run/overlayfs${readonly_overlay:+-r}
-            ln -s /run/initramfs/overlayfs$pathspec/../ovlwork /run/ovlwork${readonly_overlay:+-r}
+        elif [ -d "/run/initramfs/overlayfs$pathspec" ] \
+            && [ -d "/run/initramfs/overlayfs$pathspec/../ovlwork" ]; then
+            ln -s "/run/initramfs/overlayfs$pathspec" /run/overlayfs${readonly_overlay:+-r}
+            ln -s "/run/initramfs/overlayfs$pathspec/../ovlwork" /run/ovlwork${readonly_overlay:+-r}
             if [ -z "$overlayfs" ] && [ -n "$DRACUT_SYSTEMD" ]; then
                 reloadsysrootmountunit=":>/xor_overlayfs;"
             fi
@@ -208,10 +218,10 @@ do_live_overlay() {
         fi
     fi
 
-    if [ -z "$setup" -o -n "$readonly_overlay" ]; then
+    if [ -z "$setup" ] || [ -n "$readonly_overlay" ]; then
         if [ -n "$setup" ]; then
             warn "Using temporary overlay."
-        elif [ -n "$devspec" -a -n "$pathspec" ]; then
+        elif [ -n "$devspec" ] && [ -n "$pathspec" ]; then
             [ -z "$m" ] \
                 && m='   Unable to find a persistent overlay; using a temporary one.'
             m="$m"'
@@ -255,7 +265,7 @@ do_live_overlay() {
             fi
         else
             dd if=/dev/null of=/overlay bs=1024 count=1 seek=$((overlay_size * 1024)) 2> /dev/null
-            if [ -n "$setup" -a -n "$readonly_overlay" ]; then
+            if [ -n "$setup" ] && [ -n "$readonly_overlay" ]; then
                 RO_OVERLAY_LOOPDEV=$(losetup -f --show /overlay)
                 over=$RO_OVERLAY_LOOPDEV
             else
@@ -295,12 +305,12 @@ do_live_overlay() {
         dmsetup message /dev/mapper/live-overlay-pool 0 "create_thin 0"
 
         # Create a snapshot of the base image
-        echo 0 "$sz" thin /dev/mapper/live-overlay-pool 0 "$base" | dmsetup create live-rw
+        echo 0 "$thin_data_sz" thin /dev/mapper/live-overlay-pool 0 "$base" | dmsetup create live-rw
     elif [ -z "$overlayfs" ]; then
         echo 0 "$sz" snapshot "$base" "$over" PO 8 | dmsetup create live-rw
     fi
 
-    # Create a device for the ro base of overlayed file systems.
+    # Create a device for the ro base of overlaid file systems.
     if [ -z "$overlayfs" ]; then
         echo 0 "$sz" linear "$BASE_LOOPDEV" 0 | dmsetup create --readonly live-base
     fi
@@ -309,20 +319,22 @@ do_live_overlay() {
 # end do_live_overlay()
 
 # we might have an embedded fs image on squashfs (compressed live)
-if [ -e /run/initramfs/live/${live_dir}/${squash_image} ]; then
+if [ -e "/run/initramfs/live/${live_dir}/${squash_image}" ]; then
     SQUASHED="/run/initramfs/live/${live_dir}/${squash_image}"
 fi
 if [ -e "$SQUASHED" ]; then
     if [ -n "$live_ram" ]; then
+        imgsize=$(($(stat -c %s -- "$SQUASHED") / (1024 * 1024)))
+        check_live_ram $imgsize
         echo 'Copying live image to RAM...' > /dev/kmsg
         echo ' (this may take a minute)' > /dev/kmsg
-        dd if=$SQUASHED of=/run/initramfs/squashed.img bs=512 2> /dev/null
+        dd "if=$SQUASHED" of=/run/initramfs/squashed.img bs=512 2> /dev/null
         echo 'Done copying live image to RAM.' > /dev/kmsg
         SQUASHED="/run/initramfs/squashed.img"
     fi
 
     SQUASHED_LOOPDEV=$(losetup -f)
-    losetup -r "$SQUASHED_LOOPDEV" $SQUASHED
+    losetup -r "$SQUASHED_LOOPDEV" "$SQUASHED"
     mkdir -m 0755 -p /run/initramfs/squashfs
     mount -n -t squashfs -o ro "$SQUASHED_LOOPDEV" /run/initramfs/squashfs
 
@@ -344,15 +356,15 @@ if [ -e "$SQUASHED" ]; then
     fi
 else
     # we might have an embedded fs image to use as rootfs (uncompressed live)
-    if [ -e /run/initramfs/live/${live_dir}/rootfs.img ]; then
+    if [ -e "/run/initramfs/live/${live_dir}/rootfs.img" ]; then
         FSIMG="/run/initramfs/live/${live_dir}/rootfs.img"
-    elif [ -e /run/initramfs/live/${live_dir}/ext3fs.img ]; then
+    elif [ -e "/run/initramfs/live/${live_dir}/ext3fs.img" ]; then
         FSIMG="/run/initramfs/live/${live_dir}/ext3fs.img"
     fi
     if [ -n "$live_ram" ]; then
         echo 'Copying live image to RAM...' > /dev/kmsg
         echo ' (this may take a minute or so)' > /dev/kmsg
-        dd if=$FSIMG of=/run/initramfs/rootfs.img bs=512 2> /dev/null
+        dd "if=$FSIMG" of=/run/initramfs/rootfs.img bs=512 2> /dev/null
         echo 'Done copying live image to RAM.' > /dev/kmsg
         FSIMG='/run/initramfs/rootfs.img'
     fi
@@ -364,17 +376,17 @@ if [ -n "$FSIMG" ]; then
         echo "Unpacking live filesystem (may take some time)" > /dev/kmsg
         mkdir -m 0755 -p /run/initramfs/fsimg/
         if [ -n "$SQUASHED" ]; then
-            cp -v $FSIMG /run/initramfs/fsimg/rootfs.img
+            cp -v "$FSIMG" /run/initramfs/fsimg/rootfs.img
         else
-            unpack_archive $FSIMG /run/initramfs/fsimg/
+            unpack_archive "$FSIMG" /run/initramfs/fsimg/
         fi
         FSIMG=/run/initramfs/fsimg/rootfs.img
     fi
     # For writable DM images...
     readonly_base=1
-    if [ -z "$SQUASHED" -a -n "$live_ram" -a -z "$overlayfs" ] \
+    if [ -z "$SQUASHED" ] && [ -n "$live_ram" ] && [ -z "$overlayfs" ] \
         || [ -n "$writable_fsimg" ] \
-        || [ "$overlay" = none -o "$overlay" = None -o "$overlay" = NONE ]; then
+        || [ "$overlay" = none ] || [ "$overlay" = None ] || [ "$overlay" = NONE ]; then
         if [ -z "$readonly_overlay" ]; then
             unset readonly_base
             setup=rw
@@ -385,7 +397,7 @@ if [ -n "$FSIMG" ]; then
     if [ "$FSIMG" = "$SQUASHED" ]; then
         BASE_LOOPDEV=$SQUASHED_LOOPDEV
     else
-        BASE_LOOPDEV=$(losetup -f --show ${readonly_base:+-r} $FSIMG)
+        BASE_LOOPDEV=$(losetup -f --show ${readonly_base:+-r} "$FSIMG")
         sz=$(blockdev --getsz "$BASE_LOOPDEV")
     fi
     if [ "$setup" = rw ]; then
@@ -410,7 +422,7 @@ fi
 if [ -n "$overlayfs" ]; then
     if [ -n "$FSIMG" ]; then
         mkdir -m 0755 -p /run/rootfsbase
-        mount -r $FSIMG /run/rootfsbase
+        mount -r "$FSIMG" /run/rootfsbase
     else
         ln -sf /run/initramfs/live /run/rootfsbase
     fi

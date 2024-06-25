@@ -2,16 +2,17 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
-[ -z "$USE_NETWORK" ] && USE_NETWORK="network-legacy"
-
 # shellcheck disable=SC2034
 TEST_DESCRIPTION="root filesystem on NFS with bridging/bonding/vlan with $USE_NETWORK"
-
-KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
 #DEBUGFAIL="rd.shell rd.break"
 #SERIAL="tcp:127.0.0.1:9999"
+
+# skip the test if ifcfg dracut module can not be installed
+test_check() {
+    test -d /etc/sysconfig/network-scripts
+}
 
 # Network topology:
 #
@@ -48,8 +49,7 @@ run_server() {
         -device virtio-net-pci,netdev=n3,mac=52:54:01:12:34:59 \
         -hda "$TESTDIR"/server.ext4 \
         -serial "${SERIAL:-"file:$TESTDIR/server.log"}" \
-        -device i6300esb -watchdog-action poweroff \
-        -append "panic=1 oops=panic softlockup_panic=1 loglevel=7 root=LABEL=dracut rootfstype=ext4 rw console=ttyS0,115200n81 selinux=0 rd.debug" \
+        -append "panic=1 oops=panic softlockup_panic=1 root=LABEL=dracut rootfstype=ext4 rw console=ttyS0,115200n81 selinux=0" \
         -initrd "$TESTDIR"/initramfs.server \
         -pidfile "$TESTDIR"/server.pid -daemonize || return 1
     chmod 644 -- "$TESTDIR"/server.pid || return 1
@@ -91,16 +91,15 @@ client_test() {
         -netdev socket,connect=127.0.0.1:12373,id=n4 -device virtio-net-pci,mac=52:54:00:12:34:04,netdev=n4 \
         -netdev hubport,id=n5,hubid=1 -device virtio-net-pci,mac=52:54:00:12:34:05,netdev=n5 \
         -hda "$TESTDIR"/client.img \
-        -device i6300esb -watchdog-action poweroff \
         -append "
-        panic=1 oops=panic softlockup_panic=1
+        $TEST_KERNEL_CMDLINE
         ifname=net1:52:54:00:12:34:01
         ifname=net2:52:54:00:12:34:02
         ifname=net3:52:54:00:12:34:03
         ifname=net4:52:54:00:12:34:04
         ifname=net5:52:54:00:12:34:05
-        $cmdline rd.net.timeout.dhcp=30 systemd.crash_reboot
-        $DEBUGFAIL rd.retry=5 rw console=ttyS0,115200n81 selinux=0 init=/sbin/init" \
+        $cmdline rd.net.timeout.dhcp=30
+        rd.retry=5 rw init=/sbin/init" \
         -initrd "$TESTDIR"/initramfs.testing || return 1
 
     {
@@ -206,9 +205,6 @@ bootdev=br0
 }
 
 test_setup() {
-    # Make server root
-    dd if=/dev/zero of="$TESTDIR"/server.ext4 bs=1M count=120
-
     kernel=$KVERSION
     rm -rf -- "$TESTDIR"/overlay
     (
@@ -216,7 +212,7 @@ test_setup() {
         # shellcheck disable=SC2030
         export initdir=$TESTDIR/overlay/source
         # shellcheck disable=SC1090
-        . "$basedir"/dracut-init.sh
+        . "$PKGLIBDIR"/dracut-init.sh
 
         (
             cd "$initdir" || exit
@@ -286,7 +282,7 @@ test_setup() {
         # shellcheck disable=SC2031
         export initdir=$TESTDIR/overlay/source/nfs/client
         # shellcheck disable=SC1090
-        . "$basedir"/dracut-init.sh
+        . "$PKGLIBDIR"/dracut-init.sh
         inst_multiple sh shutdown poweroff stty cat ps ln ip \
             mount dmesg mkdir cp ping grep ls sort dd sed basename
         for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
@@ -329,8 +325,8 @@ test_setup() {
         # shellcheck disable=SC2031
         export initdir=$TESTDIR/overlay
         # shellcheck disable=SC1090
-        . "$basedir"/dracut-init.sh
-        inst_multiple sfdisk mkfs.ext4 poweroff cp umount sync dd
+        . "$PKGLIBDIR"/dracut-init.sh
+        inst_multiple mkfs.ext4 poweroff cp umount sync dd
         inst_hook initqueue 01 ./create-root.sh
         inst_hook initqueue/finished 01 ./finished-false.sh
     )
@@ -338,19 +334,25 @@ test_setup() {
     # create an initramfs that will create the target root filesystem.
     # We do it this way so that we do not risk trashing the host mdraid
     # devices, volume groups, encrypted partitions, etc.
-    "$basedir"/dracut.sh -l -i "$TESTDIR"/overlay / \
+    "$DRACUT" -l -i "$TESTDIR"/overlay / \
         -m "bash rootfs-block kernel-modules qemu" \
         -d "piix ide-gd_mod ata_piix ext4 sd_mod" \
         --nomdadmconf \
         --no-hostonly-cmdline -N \
         -f "$TESTDIR"/initramfs.makeroot "$KVERSION" || return 1
 
+    declare -a disk_args=()
+    declare -i disk_index=0
+    qemu_add_drive disk_index disk_args "$TESTDIR"/marker.img marker 1
+    qemu_add_drive disk_index disk_args "$TESTDIR"/server.ext4 root 120
+
     # Invoke KVM and/or QEMU to actually create the target filesystem.
     "$testdir"/run-qemu \
-        -drive format=raw,index=0,media=disk,file="$TESTDIR"/server.ext4 \
+        "${disk_args[@]}" \
         -append "root=/dev/dracut/root rw rootfstype=ext4 quiet console=ttyS0,115200n81 selinux=0" \
         -initrd "$TESTDIR"/initramfs.makeroot || return 1
-    grep -U --binary-files=binary -F -m 1 -q dracut-root-block-created "$TESTDIR"/server.ext4 || return 1
+    test_marker_check dracut-root-block-created || return 1
+    rm -- "$TESTDIR"/marker.img
     rm -fr "$TESTDIR"/overlay
 
     # Make an overlay with needed tools for the test harness
@@ -359,33 +361,30 @@ test_setup() {
         # shellcheck disable=SC2030
         export initdir="$TESTDIR"/overlay
         # shellcheck disable=SC1090
-        . "$basedir"/dracut-init.sh
+        . "$PKGLIBDIR"/dracut-init.sh
         inst_multiple poweroff shutdown
         inst_hook emergency 000 ./hard-off.sh
         inst_simple ./client.link /etc/systemd/network/01-client.link
     )
     # Make client's dracut image
-    "$basedir"/dracut.sh -l -i "$TESTDIR"/overlay / \
-        --no-early-microcode \
-        -o "plymouth" \
-        -a "debug ${USE_NETWORK}" \
-        --no-hostonly-cmdline -N \
-        -f "$TESTDIR"/initramfs.testing "$KVERSION" || return 1
+    test_dracut \
+        -a "debug ${USE_NETWORK} ifcfg" \
+        "$TESTDIR"/initramfs.testing
 
     (
         # shellcheck disable=SC2031
         export initdir="$TESTDIR"/overlay
         # shellcheck disable=SC1090
-        . "$basedir"/dracut-init.sh
+        . "$PKGLIBDIR"/dracut-init.sh
         rm "$initdir"/etc/systemd/network/01-client.link
         inst_simple ./server.link /etc/systemd/network/01-server.link
         inst_hook pre-mount 99 ./wait-if-server.sh
     )
     # Make server's dracut image
-    "$basedir"/dracut.sh -l -i "$TESTDIR"/overlay / \
+    "$DRACUT" -l -i "$TESTDIR"/overlay / \
         --no-early-microcode \
         -m "rootfs-block debug kernel-modules watchdog qemu network network-legacy" \
-        -d "ipvlan macvlan af_packet piix ide-gd_mod ata_piix ext4 sd_mod nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files nfsd virtio-net i6300esb ib700wdt" \
+        -d "ipvlan macvlan af_packet piix ide-gd_mod ata_piix ext4 sd_mod nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files nfsd virtio-net i6300esb" \
         --no-hostonly-cmdline -N \
         -f "$TESTDIR"/initramfs.server "$KVERSION" || return 1
 }

@@ -21,7 +21,7 @@ str_replace() {
 }
 
 # get a systemd-compatible unit name from a path
-# (mimicks unit_name_from_path_instance())
+# (mimics unit_name_from_path_instance())
 dev_unit_name() {
     local dev="$1"
 
@@ -30,7 +30,7 @@ dev_unit_name() {
         return $?
     fi
 
-    if [ "$dev" = "/" -o -z "$dev" ]; then
+    if [ "$dev" = "/" ] || [ -z "$dev" ]; then
         printf -- "-"
         return 0
     fi
