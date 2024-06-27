@@ -16,19 +16,20 @@ while ! curl -s http://localhost:1633/health >/dev/null; do
 done
 echo "bee API detected!" >&2
 echo Waiting for peers...  >&2
-sleep 10 
-# hacky wait for enough peers. 
+sleep 10
+# hacky wait for enough peers.
 # Would be better to wait on curl -s localhost:1633/peers | jq -r 'length(.peers)' > 25
 # or similar. But we didn't install jq.
 
 outdir="$(mkuniqdir /tmp bzz_fetch_url)"
 (
     cd "$outdir" || exit
-    while ! curl --retry 30 --retry-connrefused --no-fail -LO $http_url >&2; do
-        echo Failed to fetch, trying again in 5s... >&2
-        sleep 5
-	: > /dev/watchdog
-    done
+    wget $http_url >&2
+#    while ! curl --retry 30 --retry-connrefused --no-fail -LO $http_url >&2; do
+#        echo Failed to fetch, trying again in 5s... >&2
+#        sleep 5
+#	: > /dev/watchdog
+#    done
 )
 outloc="$outdir/$(ls -A "$outdir")"
 if [ -n $outloc ]; then

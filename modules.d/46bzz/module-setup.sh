@@ -16,6 +16,7 @@ install() {
     inst_simple "$moddir/bee.service" /etc/systemd/system/bee.service
     inst_binary bee
     inst_binary ss
+    inst_binary wget
     inst_simple "$moddir/bee.yaml" /etc/bee/bee.yaml
     inst_simple /var/lib/bee/password
     for key in libp2p_v2 pss swarm; do
