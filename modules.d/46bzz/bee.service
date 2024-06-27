@@ -1,6 +1,7 @@
 [Unit]
 Description=Bee - Ethereum Swarm node
 Documentation=https://docs.ethswarm.org
+After=systemd-time-wait-sync.service
 
 [Service]
 Environment=HOME=/
